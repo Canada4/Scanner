@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-fullscreen">
+<meta name="apple-mobile-web-app-title" content="MSP PreCheck">
+<meta name="theme-color" content="#0a0a0f">
+<title>MSP PreCheck Scanner</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@700;800&display=swap');
+
+  :root {
+    --pass: #00e676;
+    --pass-dim: #00c853;
+    --fail: #ff3d00;
+    --fail-dim: #dd2c00;
+    --bg: #0a0a0f;
+    --surface: #13131a;
+    --text: #e8e8f0;
+    --muted: #555566;
+    --bar-height: 90px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  html, body {
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background: var(--bg);
+    font-family: 'DM Mono', monospace;
+    color: var(--text);
+    touch-action: none;
+  }
+
+  #app {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* ── SPLASH ── */
+  #splash {
+    position: fixed;
+    inset: 0;
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    z-index: 100;
+    transition: opacity 0.4s ease;
+  }
+  #splash.hidden { opacity: 0; pointer-events: none; }
+
+  .splash-logo {
+    font-family: 'Syne', sans-serif;
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0.35em;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+  .splash-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 38px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    color: var(--text);
+    line-height: 1;
+  }
+  .splash-sub {
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.15em;
+    margin-top: 4px;
+  }
+
+  #startBtn {
+    margin-top: 40px;
+    background: var(--text);
+    color: var(--bg);
+    border: none;
+    border-radius: 14px;
+    padding: 18px 48px;
+    font-family: 'Syne', sans-serif;
+    font-size: 16px;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    cursor: pointer;
+    transition: transform 0.15s ease, opacity 0.15s ease;
+  }
+  #startBtn:active { transform: scale(0.96); opacity: 0.85; }
+
+  /* ── CAMERA ── */
+  #cameraWrap {
+    position: fixed;
+    inset: 0;
+    background: #000;
+  }
+
+  #video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  /* ── SCAN OVERLAY ── */
+  #overlay {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+  }
+
+  .scan-frame {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -58%);
+    width: min(78vw, 320px);
+    height: min(52vw, 210px);
+  }
+
+  .corner {
+    position: absolute;
+    width: 22px;
+    height: 22px;
+    border-color: rgba(255,255,255,0.7);
+    border-style: solid;
+  }
+  .corner.tl { top: 0; left: 0; border-width: 2px 0 0 2px; border-radius: 3px 0 0 0; }
+  .corner.tr { top: 0; right: 0; border-width: 2px 2px 0 0; border-radius: 0 3px 0 0; }
+  .corner.bl { bottom: 0; left: 0; border-width: 0 0 2px 2px; border-radius: 0 0 0 3px; }
+  .corner.br { bottom: 0; right: 0; border-width: 0 2px 2px 0; border-radius: 0 0 3px 0; }
+
+  .scan-line {
+    position: absolute;
+    left: 2px; right: 2px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.6), transparent);
+    animation: scanMove 2s ease-in-out infinite;
+    top: 0;
+  }
+  @keyframes scanMove {
+    0%   { top: 4px; opacity: 0; }
+    10%  { opacity: 1; }
+    90%  { opacity: 1; }
+    100% { top: calc(100% - 4px); opacity: 0; }
+  }
+
+  #scanHint {
+    position: absolute;
+    bottom: calc(var(--bar-height) + 28px);
+    left: 0; right: 0;
+    text-align: center;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    color: rgba(255,255,255,0.4);
+    text-transform: uppercase;
+  }
+
+  /* ── RESULT BAR ── */
+  #resultBar {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    height: var(--bar-height);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    transform: translateY(100%);
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    z-index: 50;
+  }
+  #resultBar.show { transform: translateY(0); }
+  #resultBar.pass { background: var(--pass); }
+  #resultBar.fail { background: var(--fail); }
+
+  #resultIcon {
+    font-size: 28px;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+
+  #resultText {
+    flex: 1;
+    padding: 0 14px;
+    overflow: hidden;
+  }
+  #resultName {
+    font-family: 'Syne', sans-serif;
+    font-size: 17px;
+    font-weight: 800;
+    color: #000;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    letter-spacing: -0.01em;
+  }
+  #resultSub {
+    font-size: 10px;
+    color: rgba(0,0,0,0.55);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-top: 2px;
+  }
+
+  #resultBadge {
+    font-family: 'Syne', sans-serif;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    color: #000;
+    background: rgba(0,0,0,0.15);
+    border-radius: 8px;
+    padding: 6px 10px;
+    text-align: center;
+    flex-shrink: 0;
+  }
+
+  /* ── COUNTER ── */
+  #counter {
+    position: fixed;
+    top: max(env(safe-area-inset-top, 0px), 16px);
+    right: 18px;
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    color: rgba(255,255,255,0.35);
+    text-transform: uppercase;
+    z-index: 50;
+  }
+
+  /* ── PERMISSION ERROR ── */
+  #permError {
+    position: fixed;
+    inset: 0;
+    background: var(--bg);
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 40px;
+    text-align: center;
+    z-index: 200;
+  }
+  #permError.show { display: flex; }
+  #permError p { color: var(--muted); font-size: 13px; line-height: 1.7; letter-spacing: 0.05em; }
+  #permError strong { color: var(--text); font-family: 'Syne', sans-serif; font-size: 20px; display: block; margin-bottom: 8px; }
+</style>
+</head>
+<body>
+
+<!-- SPLASH -->
+<div id="splash">
+  <div class="splash-logo">Minneapolis–Saint Paul</div>
+  <div class="splash-title">PreCheck<br>Scanner</div>
+  <div class="splash-sub">MSP Departures Only</div>
+  <button id="startBtn">Start Scanning</button>
+</div>
+
+<!-- PERMISSION ERROR -->
+<div id="permError">
+  <p><strong>Camera Access Required</strong>
+  Please allow camera access in your browser settings, then reload the page.</p>
+</div>
+
+<!-- CAMERA -->
+<div id="cameraWrap" style="display:none">
+  <video id="video" autoplay muted playsinline></video>
+</div>
+
+<!-- OVERLAY -->
+<div id="overlay" style="display:none">
+  <div class="scan-frame">
+    <div class="corner tl"></div>
+    <div class="corner tr"></div>
+    <div class="corner bl"></div>
+    <div class="corner br"></div>
+    <div class="scan-line"></div>
+  </div>
+  <div id="scanHint">Hold boarding pass barcode steady</div>
+</div>
+
+<!-- COUNTER -->
+<div id="counter" style="display:none">
+  <span id="passCount">0</span> passed · <span id="failCount">0</span> failed
+</div>
+
+<!-- RESULT BAR -->
+<div id="resultBar">
+  <div id="resultIcon"></div>
+  <div id="resultText">
+    <div id="resultName"></div>
+    <div id="resultSub"></div>
+  </div>
+  <div id="resultBadge"></div>
+</div>
+
+<!-- ZXing for barcode scanning -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/zxing-js/0.20.0/umd/index.min.js"></script>
+
+<script>
+// ── AUDIO ──────────────────────────────────────────────────
+const AudioCtx = window.AudioContext || window.webkitAudioContext;
+let audioCtx = null;
+
+function getAudio() {
+  if (!audioCtx) audioCtx = new AudioCtx();
+  return audioCtx;
+}
+
+function playPass() {
+  try {
+    const ctx = getAudio();
+    const t = ctx.currentTime;
+    // Soft two-tone chime
+    [523.25, 783.99].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, t + i * 0.12);
+      gain.gain.setValueAtTime(0, t + i * 0.12);
+      gain.gain.linearRampToValueAtTime(0.18, t + i * 0.12 + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + i * 0.12 + 0.35);
+      osc.start(t + i * 0.12);
+      osc.stop(t + i * 0.12 + 0.4);
+    });
+  } catch(e) {}
+}
+
+function playFail() {
+  try {
+    const ctx = getAudio();
+    const t = ctx.currentTime;
+    // Low dull thunk
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const filter = ctx.createBiquadFilter();
+    osc.connect(filter); filter.connect(gain); gain.connect(ctx.destination);
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(110, t);
+    osc.frequency.exponentialRampToValueAtTime(55, t + 0.18);
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(300, t);
+    gain.gain.setValueAtTime(0.22, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+    osc.start(t);
+    osc.stop(t + 0.3);
+  } catch(e) {}
+}
+
+// ── BCBP PARSER ────────────────────────────────────────────
+// IATA BCBP Type M format
+function parseBCBP(raw) {
+  try {
+    if (!raw || raw.length < 60) return null;
+    if (raw[0] !== 'M') return null;
+
+    // Field 11: Origin airport = chars 30–32 (0-indexed)
+    const origin = raw.substring(30, 33).trim().toUpperCase();
+
+    // Field 12: Destination airport = chars 33–35
+    const destination = raw.substring(33, 36).trim().toUpperCase();
+
+    // Passenger name: chars 2–21, format LAST/FIRST
+    const nameRaw = raw.substring(2, 22).trim();
+    let displayName = nameRaw;
+    if (nameRaw.includes('/')) {
+      const parts = nameRaw.split('/');
+      const last = parts[0].trim();
+      const first = (parts[1] || '').trim().split(' ')[0];
+      displayName = first ? `${first} ${last}` : last;
+    }
+
+    // TSA PreCheck: conditional item in field 18 or security data
+    // The standard indicator is in the "Selectee indicator" field (char 96 in segment)
+    // and/or the "International document verification" area.
+    // Most commonly: char at position 96 (0-indexed) = '1' means PreCheck
+    // Also check for >>TSA PRE in the string for some airlines
+    let hasPrecheck = false;
+
+    // Method 1: BCBP field at position 96
+    if (raw.length > 96) {
+      const selectee = raw[96];
+      // '1' = PreCheck, '3' = SSSS (selectee), ' ' or '0' = standard
+      if (selectee === '1') hasPrecheck = true;
+    }
+
+    // Method 2: Some airlines encode differently — check for TSA marker
+    if (!hasPrecheck) {
+      const upper = raw.toUpperCase();
+      if (upper.includes('TSAPRECHK') || upper.includes('TSA PRE') || upper.includes('PRECHK')) {
+        hasPrecheck = true;
+      }
+    }
+
+    // Method 3: Conditional field parsing — look for ^> sequences
+    // In some BCBP implementations the conditional section starts at char 58
+    // and contains coded security info
+    if (!hasPrecheck && raw.length > 108) {
+      // Check the "Fast Track" / PreCheck byte in some implementations
+      const byte108 = raw[108];
+      if (byte108 === '1') hasPrecheck = true;
+    }
+
+    return { origin, destination, displayName, hasPrecheck };
+  } catch(e) {
+    return null;
+  }
+}
+
+// ── DUPLICATE DETECTION ────────────────────────────────────
+const recentScans = new Map(); // key -> timestamp
+const DUPE_WINDOW_MS = 2 * 60 * 1000; // 2 minutes
+
+function isDuplicate(key) {
+  const now = Date.now();
+  // Clean up old entries
+  for (const [k, ts] of recentScans) {
+    if (now - ts > DUPE_WINDOW_MS) recentScans.delete(k);
+  }
+  if (recentScans.has(key)) return true;
+  recentScans.set(key, now);
+  return false;
+}
+
+function getScanKey(raw) {
+  // Use a slice of the raw data as a fingerprint (name + flight segment)
+  return raw.substring(2, 48).replace(/\s/g, '');
+}
+
+// ── RESULT UI ──────────────────────────────────────────────
+let resultTimer = null;
+let passCount = 0, failCount = 0;
+
+function showResult(type, name, sub, badge) {
+  const bar = document.getElementById('resultBar');
+  const icon = document.getElementById('resultIcon');
+  const nameEl = document.getElementById('resultName');
+  const subEl = document.getElementById('resultSub');
+  const badgeEl = document.getElementById('resultBadge');
+
+  bar.className = 'show ' + type;
+  icon.textContent = type === 'pass' ? '✓' : '✕';
+  nameEl.textContent = name;
+  subEl.textContent = sub;
+  badgeEl.textContent = badge;
+
+  if (resultTimer) clearTimeout(resultTimer);
+  resultTimer = setTimeout(() => {
+    bar.className = '';
+  }, 3500);
+
+  if (type === 'pass') { passCount++; playPass(); }
+  else { failCount++; playFail(); }
+
+  document.getElementById('passCount').textContent = passCount;
+  document.getElementById('failCount').textContent = failCount;
+}
+
+// ── SCANNER ────────────────────────────────────────────────
+let scanning = true;
+let lastRaw = '';
+let lastRawTime = 0;
+
+async function startScanner() {
+  const video = document.getElementById('video');
+  document.getElementById('cameraWrap').style.display = 'block';
+  document.getElementById('overlay').style.display = 'block';
+  document.getElementById('counter').style.display = 'block';
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+    });
+    video.srcObject = stream;
+    await video.play();
+  } catch(e) {
+    document.getElementById('permError').classList.add('show');
+    return;
+  }
+
+  // Use ZXing
+  const hints = new Map();
+  const formats = [
+    ZXingBrowser.BarcodeFormat.PDF_417,
+    ZXingBrowser.BarcodeFormat.QR_CODE,
+    ZXingBrowser.BarcodeFormat.AZTEC,
+    ZXingBrowser.BarcodeFormat.DATA_MATRIX
+  ];
+  hints.set(ZXingBrowser.DecodeHintType.POSSIBLE_FORMATS, formats);
+
+  const codeReader = new ZXingBrowser.BrowserMultiFormatReader(hints);
+
+  const canvas = document.createElement('canvas');
+  const ctx2d = canvas.getContext('2d');
+
+  function tick() {
+    if (!scanning) return;
+
+    if (video.readyState === video.HAVE_ENOUGH_DATA) {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx2d.drawImage(video, 0, 0);
+
+      try {
+        const imageData = ctx2d.getImageData(0, 0, canvas.width, canvas.height);
+        const luminance = new ZXingBrowser.ZXingBrowser
+          ? null : null; // fallback handled below
+      } catch(e) {}
+
+      // Use decodeFromCanvas
+      codeReader.decodeFromVideoElement(video)
+        .then(result => {
+          if (result) handleScan(result.getText());
+        })
+        .catch(() => {});
+    }
+    requestAnimationFrame(tick);
+  }
+
+  // Better approach: continuous decode
+  codeReader.decodeFromVideoDevice(null, video, (result, err) => {
+    if (result) handleScan(result.getText());
+  });
+}
+
+function handleScan(raw) {
+  const now = Date.now();
+  // Debounce same raw within 1.5s
+  if (raw === lastRaw && now - lastRawTime < 1500) return;
+  lastRaw = raw;
+  lastRawTime = now;
+
+  const data = parseBCBP(raw);
+
+  if (!data) {
+    showResult('fail', 'Invalid Barcode', 'Could not read boarding pass', 'ERROR');
+    return;
+  }
+
+  const scanKey = getScanKey(raw);
+
+  // Check duplicate
+  if (isDuplicate(scanKey)) {
+    showResult('fail', data.displayName || 'Passenger', 'Boarding pass already scanned', 'DUPLICATE');
+    return;
+  }
+
+  // Check MSP origin
+  if (data.origin !== 'MSP') {
+    showResult('fail', data.displayName || 'Passenger', `Origin: ${data.origin || 'Unknown'} — Not an MSP departure`, 'WRONG AIRPORT');
+    return;
+  }
+
+  // Check PreCheck
+  if (!data.hasPrecheck) {
+    showResult('fail', data.displayName || 'Passenger', 'No TSA PreCheck on this boarding pass', 'NO PRECHECK');
+    return;
+  }
+
+  // All good
+  showResult('pass', data.displayName || 'Passenger', `MSP → ${data.destination} · TSA PreCheck`, 'PRECHECK ✓');
+}
+
+// ── INIT ───────────────────────────────────────────────────
+document.getElementById('startBtn').addEventListener('click', () => {
+  // Unlock audio on user gesture
+  getAudio();
+  document.getElementById('splash').classList.add('hidden');
+  setTimeout(() => {
+    document.getElementById('splash').style.display = 'none';
+    startScanner();
+  }, 400);
+});
+</script>
+</body>
+</html>
